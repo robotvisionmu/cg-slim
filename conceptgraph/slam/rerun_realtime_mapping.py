@@ -2,6 +2,18 @@
 The script is used to model Grounded SAM detections in 3D, it assumes the tag2text classes are avaialable. It also assumes the dataset has Clip features saved for each object/mask.
 '''
 
+# Custom
+import orbslam3
+from conceptgraph.custom.Detection import Detection
+from conceptgraph.custom.KeyFrame import KeyFrame
+from conceptgraph.custom.BoomObject import BoomObject
+# from conceptgraph.custom.utils import get_updated_frame_idxs, get_objs_in_frame
+import open3d as o3d
+import logging
+
+
+logging.getLogger("PIL").setLevel(logging.WARNING)
+
 # Standard library imports
 import os
 import copy
@@ -17,7 +29,7 @@ import scipy.ndimage as ndi
 import torch
 from PIL import Image
 from tqdm import trange
-from open3d.io import read_pinhole_camera_parameters
+# from open3d.io import read_pinhole_camera_parameters
 import hydra
 from omegaconf import DictConfig
 import open_clip
@@ -62,14 +74,14 @@ from conceptgraph.utils.general_utils import (
     vis_render_image
 )
 from conceptgraph.dataset.datasets_common import get_dataset
-from conceptgraph.utils.vis import (
-    OnlineObjectRenderer, 
-    save_video_from_frames, 
-    vis_result_fast_on_depth, 
-    vis_result_for_vlm, 
-    vis_result_fast, 
-    save_video_detections
-)
+# from conceptgraph.utils.vis import (
+#     OnlineObjectRenderer, 
+#     save_video_from_frames, 
+#     vis_result_fast_on_depth, 
+#     vis_result_for_vlm, 
+#     vis_result_fast, 
+#     save_video_detections
+# )
 from conceptgraph.slam.slam_classes import MapEdgeMapping, MapObjectList
 from conceptgraph.slam.utils import (
     filter_gobs,
@@ -112,12 +124,6 @@ def main(cfg : DictConfig):
     orr.init("realtime_mapping")
     orr.spawn()
 
-    owandb = OptionalWandB()
-    owandb.set_use_wandb(cfg.use_wandb)
-    owandb.init(project="concept-graphs", 
-            #    entity="concept-graphs",
-                config=cfg_to_dict(cfg),
-               )
     cfg = process_cfg(cfg)
 
     # Initialize the dataset
@@ -133,20 +139,10 @@ def main(cfg : DictConfig):
         device="cpu",
         dtype=torch.float,
     )
-    # cam_K = dataset.get_cam_K()
 
     objects = MapObjectList(device=cfg.device)
     map_edges = MapEdgeMapping(objects)
 
-    # For visualization
-    if cfg.vis_render:
-        view_param = read_pinhole_camera_parameters(cfg.render_camera_path)
-        obj_renderer = OnlineObjectRenderer(
-            view_param = view_param,
-            base_objects = None, 
-            gray_map = False,
-        )
-        frames = []
     # output folder for this mapping experiment
     exp_out_path = get_exp_out_path(cfg.dataset_root, cfg.scene_id, cfg.exp_suffix)
 
@@ -155,6 +151,7 @@ def main(cfg : DictConfig):
 
     # we need to make sure to use the same classes as the ones used in the detections
     detections_exp_cfg = cfg_to_dict(cfg)
+
     obj_classes = ObjectClasses(
         classes_file_path=detections_exp_cfg['classes_file'], 
         bg_classes=detections_exp_cfg['bg_classes'], 
@@ -187,30 +184,105 @@ def main(cfg : DictConfig):
     else:
         print("\n".join(["NOT Running detections..."] * 10))
 
-    openai_client = get_openai_client()
+    # openai_client = get_openai_client()
 
-    save_hydra_config(cfg, exp_out_path)
-    save_hydra_config(detections_exp_cfg, exp_out_path, is_detection_config=True)
+    # save_hydra_config(cfg, exp_out_path)
+    # save_hydra_config(detections_exp_cfg, exp_out_path, is_detection_config=True)
 
-    if cfg.save_objects_all_frames:
-        obj_all_frames_out_path = exp_out_path / "saved_obj_all_frames" / f"det_{cfg.detections_exp_suffix}"
-        os.makedirs(obj_all_frames_out_path, exist_ok=True)
+    # if cfg.save_objects_all_frames:
+    #     obj_all_frames_out_path = exp_out_path / "saved_obj_all_frames" / f"det_{cfg.detections_exp_suffix}"
+    #     os.makedirs(obj_all_frames_out_path, exist_ok=True)
 
     exit_early_flag = False
     counter = 0
-    for frame_idx in trange(len(dataset)):
+
+    # # Custom
+    # vocab_file = "../../pyorb/third_party/ORB_SLAM3/Vocabulary/ORBvoc.txt"
+    # settings_file = "../../orbslam_files/replica_settings.yaml"
+    
+    # slam = orbslam3.system(vocab_file, settings_file, orbslam3.Sensor.RGBD)
+    # slam.set_use_viewer(False)
+    # slam.initialize()
+
+    poses = []
+    prev_poses = []   
+
+    # prev_keyframe_ids = set()
+
+    for frame_idx in trange(len(dataset)-50):
+        print(len(dataset))
+    #---------------------------------------------------------------------------------------------------------------------
+        color_path = dataset.color_paths[frame_idx]
+        # rgb = cv2.imread(color_path)
+        # depth_path = dataset.depth_paths[frame_idx]
+        # depth = cv2.imread(depth_path, -1)
+
+        # slam.process_image_rgbd(rgb, depth, float(frame_idx))
+        # poses = slam.get_trajectory()
+
+
+        # if len(prev_poses) > 0:
+        #     # Get frames with updated poses
+        #     updated_frame_idxs = get_updated_frame_idxs(poses, prev_poses)
+
+        #     for updated_frame_idx in updated_frame_idxs:
+
+        #         # Get objects derived from the updated frame
+        #         objects_in_frame = get_objs_in_frame(objects, updated_frame_idx)
+
+        #         # Update the PCD of each object
+        #         for obj in objects_in_frame:
+        #             new_pcd = pcd = o3d.geometry.PointCloud()
+
+        #             # Get PCD contributions from the other frames the object appears in
+        #             for i, img_idx in enumerate(obj["image_idx"]):
+        #                 # Get data for the frame
+        #                 color_tensor, depth_tensor, intrinsics, *_ = dataset[updated_frame_idx]
+        #                 # Covert to numpy and do some sanity checks
+        #                 depth_tensor = depth_tensor[..., 0]
+        #                 depth_array = depth_tensor.cpu().numpy()
+        #                 color_np = color_tensor.cpu().numpy() # (H, W, 3)
+        #                 image_rgb = (color_np).astype(np.uint8) # (H, W, 3)
+
+        #                 pcd_contrib = obj_pcds_and_bboxes = detections_to_obj_pcd_and_bbox(
+        #                                                     depth_array=depth_array,
+        #                                                     masks=np.expand_dims(obj["mask"][i], axis=0),
+        #                                                     cam_K=intrinsics.cpu().numpy()[:3, :3],  # Camera intrinsics
+        #                                                     image_rgb=image_rgb,
+        #                                                     trans_pose=poses[img_idx],
+        #                                                     min_points_threshold=cfg.min_points_threshold,
+        #                                                     spatial_sim_type=cfg.spatial_sim_type,
+        #                                                     obj_pcd_max_points=cfg.obj_pcd_max_points,
+        #                                                     device=cfg.device,
+        #                                                     )
+
+        #                 new_pcd += pcd_contrib[0]["pcd"]
+
+        #             # Process the new PCD
+        #             new_pcd = process_pcd(new_pcd, cfg["downsample_voxel_size"], cfg["dbscan_remove_noise"], cfg["dbscan_eps"], cfg["dbscan_min_points"], run_dbscan=True)
+                    
+        #             # Get the bounding box of the new PCD
+        #             bbox = get_bounding_box(cfg['spatial_sim_type'], new_pcd)
+
+        #             obj["pcd"] = new_pcd
+        #             obj["bbox"] = bbox
+        #             obj["n_points"] = len(np.asarray(new_pcd.points))
+                
+        # prev_poses = poses
+    #---------------------------------------------------------------------------------------------------------------------
+        
         tracker.curr_frame_idx = frame_idx
         counter+=1
         orr.set_time_sequence("frame", frame_idx)
 
-        # Check if we should exit early only if the flag hasn't been set yet
-        if not exit_early_flag and should_exit_early(cfg.exit_early_file):
-            print("Exit early signal detected. Skipping to the final frame...")
-            exit_early_flag = True
+        # # Check if we should exit early only if the flag hasn't been set yet
+        # if not exit_early_flag and should_exit_early(cfg.exit_early_file):
+        #     print("Exit early signal detected. Skipping to the final frame...")
+        #     exit_early_flag = True
 
-        # If exit early flag is set and we're not at the last frame, skip this iteration
-        if exit_early_flag and frame_idx < len(dataset) - 1:
-            continue
+        # # If exit early flag is set and we're not at the last frame, skip this iteration
+        # if exit_early_flag and frame_idx < len(dataset) - 1:
+        #     continue
 
         # Read info about current frame from dataset
         # color image
@@ -268,7 +340,7 @@ def main(cfg : DictConfig):
             )
             
             # Make the edges
-            labels, edges, edge_image, captions = make_vlm_edges_and_captions(image, curr_det, obj_classes, detection_class_labels, det_exp_vis_path, color_path, cfg.make_edges, openai_client)
+            # labels, edges, edge_image, captions = make_vlm_edges_and_captions(image, curr_det, obj_classes, detection_class_labels, det_exp_vis_path, color_path, False, None)
 
             image_crops, image_feats, text_feats = compute_clip_features_batched(
                 image_rgb, curr_det, clip_model, clip_preprocess, clip_tokenizer, obj_classes.get_classes_arr(), cfg.device)
@@ -289,28 +361,28 @@ def main(cfg : DictConfig):
                 "image_feats": image_feats,
                 "text_feats": text_feats,
                 "detection_class_labels": detection_class_labels,
-                "labels": labels,
-                "edges": edges,
-                "captions": captions,
+                # "labels": labels,
+                # "edges": edges,
+                # "captions": captions,
             }
 
             raw_gobs = results
 
-            # save the detections if needed
-            if cfg.save_detections:
+            # # save the detections if needed
+            # if cfg.save_detections:
 
-                vis_save_path = (det_exp_vis_path / color_path.name).with_suffix(".jpg")
-                # Visualize and save the annotated image
-                annotated_image, labels = vis_result_fast(image, curr_det, obj_classes.get_classes_arr())
-                cv2.imwrite(str(vis_save_path), annotated_image)
+            #     vis_save_path = (det_exp_vis_path / color_path.name).with_suffix(".jpg")
+            #     # Visualize and save the annotated image
+            #     annotated_image, labels = vis_result_fast(image, curr_det, obj_classes.get_classes_arr())
+            #     cv2.imwrite(str(vis_save_path), annotated_image)
 
-                depth_image_rgb = cv2.normalize(depth_array, None, 0, 255, cv2.NORM_MINMAX)
-                depth_image_rgb = depth_image_rgb.astype(np.uint8)
-                depth_image_rgb = cv2.cvtColor(depth_image_rgb, cv2.COLOR_GRAY2BGR)
-                annotated_depth_image, labels = vis_result_fast_on_depth(depth_image_rgb, curr_det, obj_classes.get_classes_arr())
-                cv2.imwrite(str(vis_save_path).replace(".jpg", "_depth.jpg"), annotated_depth_image)
-                cv2.imwrite(str(vis_save_path).replace(".jpg", "_depth_only.jpg"), depth_image_rgb)
-                save_detection_results(det_exp_pkl_path / vis_save_path.stem, results)
+            #     depth_image_rgb = cv2.normalize(depth_array, None, 0, 255, cv2.NORM_MINMAX)
+            #     depth_image_rgb = depth_image_rgb.astype(np.uint8)
+            #     depth_image_rgb = cv2.cvtColor(depth_image_rgb, cv2.COLOR_GRAY2BGR)
+            #     annotated_depth_image, labels = vis_result_fast_on_depth(depth_image_rgb, curr_det, obj_classes.get_classes_arr())
+            #     cv2.imwrite(str(vis_save_path).replace(".jpg", "_depth.jpg"), annotated_depth_image)
+            #     cv2.imwrite(str(vis_save_path).replace(".jpg", "_depth_only.jpg"), depth_image_rgb)
+            #     save_detection_results(det_exp_pkl_path / vis_save_path.stem, results)
         else:
             # Support current and old saving formats
             if os.path.exists(det_exp_pkl_path / color_path.stem):
@@ -328,7 +400,10 @@ def main(cfg : DictConfig):
         # Don't apply any transformation otherwise
         adjusted_pose = unt_pose
         
-        prev_adjusted_pose = orr_log_camera(intrinsics, adjusted_pose, prev_adjusted_pose, cfg.image_width, cfg.image_height, frame_idx)
+        prev_adjusted_pose = orr_log_camera(intrinsics, adjusted_pose, prev_adjusted_pose, cfg.image_width, cfg.image_height, frame_idx, "trajectory_live")
+
+        for i in range(len(poses)):
+            orr_log_camera(intrinsics, poses[i], poses[i-1], cfg.image_width, cfg.image_height, i, "trajectory_opt")
         
         orr_log_rgb_image(color_path)
         orr_log_annotated_image(color_path, det_exp_vis_path)
@@ -394,10 +469,10 @@ def main(cfg : DictConfig):
         if len(objects) == 0:
             objects.extend(detection_list)
             tracker.increment_total_objects(len(detection_list))
-            owandb.log({
-                    "total_objects_so_far": tracker.get_total_objects(),
-                    "objects_this_frame": len(detection_list),
-                })
+            # owandb.log({
+            #         "total_objects_so_far": tracker.get_total_objects(),
+            #         "objects_this_frame": len(detection_list),
+            #     })
             continue 
 
         ### compute similarities and then merge
@@ -417,11 +492,16 @@ def main(cfg : DictConfig):
             visual_sim=visual_sim
         )
 
+        print(f"Spatial Similarities:\n{spatial_sim}")
+        print(f"Visual Similarities:\n{visual_sim}")
+        print(f"Aggregated Similarities:\n{agg_sim}")
+
         # Perform matching of detections to existing objects
         match_indices = match_detections_to_objects(
             agg_sim=agg_sim, 
             detection_threshold=cfg['sim_threshold']  # Use the sim_threshold from the configuration
         )
+        print(f"Match indices: {match_indices}")
 
         # Now merge the detected objects into the existing objects based on the match indices
         objects = merge_obj_matches(
@@ -466,173 +546,233 @@ def main(cfg : DictConfig):
             map_edges.delete_edge(edge[0], edge[1])
         ### Perform post-processing periodically if told so
 
-        # Denoising
-        if processing_needed(
-            cfg["denoise_interval"],
-            cfg["run_denoise_final_frame"],
-            frame_idx,
-            is_final_frame,
-        ):
-            objects = measure_time(denoise_objects)(
-                downsample_voxel_size=cfg['downsample_voxel_size'], 
-                dbscan_remove_noise=cfg['dbscan_remove_noise'], 
-                dbscan_eps=cfg['dbscan_eps'], 
-                dbscan_min_points=cfg['dbscan_min_points'], 
-                spatial_sim_type=cfg['spatial_sim_type'], 
-                device=cfg['device'], 
-                objects=objects
-            )
+        # # Denoising
+        # if processing_needed(
+        #     cfg["denoise_interval"],
+        #     cfg["run_denoise_final_frame"],
+        #     frame_idx,
+        #     is_final_frame,
+        # ):
+        #     objects = measure_time(denoise_objects)(
+        #         downsample_voxel_size=cfg['downsample_voxel_size'], 
+        #         dbscan_remove_noise=cfg['dbscan_remove_noise'], 
+        #         dbscan_eps=cfg['dbscan_eps'], 
+        #         dbscan_min_points=cfg['dbscan_min_points'], 
+        #         spatial_sim_type=cfg['spatial_sim_type'], 
+        #         device=cfg['device'], 
+        #         objects=objects
+        #     )
 
-        # Filtering
-        if processing_needed(
-            cfg["filter_interval"],
-            cfg["run_filter_final_frame"],
-            frame_idx,
-            is_final_frame,
-        ):
-            objects = filter_objects(
-                obj_min_points=cfg['obj_min_points'], 
-                obj_min_detections=cfg['obj_min_detections'], 
-                objects=objects,
-                map_edges=map_edges
-            )
+        # # Filtering
+        # if processing_needed(
+        #     cfg["filter_interval"],
+        #     cfg["run_filter_final_frame"],
+        #     frame_idx,
+        #     is_final_frame,
+        # ):
+        #     objects = filter_objects(
+        #         obj_min_points=cfg['obj_min_points'], 
+        #         obj_min_detections=cfg['obj_min_detections'], 
+        #         objects=objects,
+        #         map_edges=map_edges
+        #     )
 
-        # Merging
-        if processing_needed(
-            cfg["merge_interval"],
-            cfg["run_merge_final_frame"],
-            frame_idx,
-            is_final_frame,
-        ):
-            objects, map_edges = measure_time(merge_objects)(
-                merge_overlap_thresh=cfg["merge_overlap_thresh"],
-                merge_visual_sim_thresh=cfg["merge_visual_sim_thresh"],
-                merge_text_sim_thresh=cfg["merge_text_sim_thresh"],
-                objects=objects,
-                downsample_voxel_size=cfg["downsample_voxel_size"],
-                dbscan_remove_noise=cfg["dbscan_remove_noise"],
-                dbscan_eps=cfg["dbscan_eps"],
-                dbscan_min_points=cfg["dbscan_min_points"],
-                spatial_sim_type=cfg["spatial_sim_type"],
-                device=cfg["device"],
-                do_edges=cfg["make_edges"],
-                map_edges=map_edges
-            )
+        # # Merging
+        # if processing_needed(
+        #     cfg["merge_interval"],
+        #     cfg["run_merge_final_frame"],
+        #     frame_idx,
+        #     is_final_frame,
+        # ):
+        #     objects = measure_time(merge_objects)(
+        #         merge_overlap_thresh=cfg["merge_overlap_thresh"],
+        #         merge_visual_sim_thresh=cfg["merge_visual_sim_thresh"],
+        #         merge_text_sim_thresh=cfg["merge_text_sim_thresh"],
+        #         objects=objects,
+        #         downsample_voxel_size=cfg["downsample_voxel_size"],
+        #         dbscan_remove_noise=cfg["dbscan_remove_noise"],
+        #         dbscan_eps=cfg["dbscan_eps"],
+        #         dbscan_min_points=cfg["dbscan_min_points"],
+        #         spatial_sim_type=cfg["spatial_sim_type"],
+        #         device=cfg["device"],
+        #         do_edges=cfg["make_edges"],
+        #         map_edges=map_edges
+        #     )
         orr_log_objs_pcd_and_bbox(objects, obj_classes)
         orr_log_edges(objects, map_edges, obj_classes)
 
-        if cfg.save_objects_all_frames:
-            save_objects_for_frame(
-                obj_all_frames_out_path,
-                frame_idx,
-                objects,
-                cfg.obj_min_detections,
-                adjusted_pose,
-                color_path
-            )
+        # if cfg.save_objects_all_frames:
+        #     save_objects_for_frame(
+        #         obj_all_frames_out_path,
+        #         frame_idx,
+        #         objects,
+        #         cfg.obj_min_detections,
+        #         adjusted_pose,
+        #         color_path
+        #     )
         
-        if cfg.vis_render:
-            # render a frame, if needed (not really used anymore since rerun)
-            vis_render_image(
-                objects,
-                obj_classes,
-                obj_renderer,
-                image_original_pil,
-                adjusted_pose,
-                frames,
-                frame_idx,
-                color_path,
-                cfg.obj_min_detections,
-                cfg.class_agnostic,
-                cfg.debug_render,
-                is_final_frame,
-                cfg.exp_out_path,
-                cfg.exp_suffix,
-            )
+        # if cfg.vis_render:
+        #     # render a frame, if needed (not really used anymore since rerun)
+        #     vis_render_image(
+        #         objects,
+        #         obj_classes,
+        #         obj_renderer,
+        #         image_original_pil,
+        #         adjusted_pose,
+        #         frames,
+        #         frame_idx,
+        #         color_path,
+        #         cfg.obj_min_detections,
+        #         cfg.class_agnostic,
+        #         cfg.debug_render,
+        #         is_final_frame,
+        #         cfg.exp_out_path,
+        #         cfg.exp_suffix,
+        #     )
 
-        if cfg.periodically_save_pcd and (counter % cfg.periodically_save_pcd_interval == 0):
-            # save the pointcloud
-            save_pointcloud(
-                exp_suffix=cfg.exp_suffix,
-                exp_out_path=exp_out_path,
-                cfg=cfg,
-                objects=objects,
-                obj_classes=obj_classes,
-                latest_pcd_filepath=cfg.latest_pcd_filepath,
-                create_symlink=True
-            )
+        # if cfg.periodically_save_pcd and (counter % cfg.periodically_save_pcd_interval == 0):
+        #     # save the pointcloud
+        #     save_pointcloud(
+        #         exp_suffix=cfg.exp_suffix,
+        #         exp_out_path=exp_out_path,
+        #         cfg=cfg,
+        #         objects=objects,
+        #         obj_classes=obj_classes,
+        #         latest_pcd_filepath=cfg.latest_pcd_filepath,
+        #         create_symlink=True
+        #     )
 
-        owandb.log({
-            "frame_idx": frame_idx,
-            "counter": counter,
-            "exit_early_flag": exit_early_flag,
-            "is_final_frame": is_final_frame,
-        })
+        # owandb.log({
+        #     "frame_idx": frame_idx,
+        #     "counter": counter,
+        #     "exit_early_flag": exit_early_flag,
+        #     "is_final_frame": is_final_frame,
+        # })
 
         tracker.increment_total_objects(len(objects))
         tracker.increment_total_detections(len(detection_list))
-        owandb.log({
-                "total_objects": tracker.get_total_objects(),
-                "objects_this_frame": len(objects),
-                "total_detections": tracker.get_total_detections(),
-                "detections_this_frame": len(detection_list),
-                "frame_idx": frame_idx,
-                "counter": counter,
-                "exit_early_flag": exit_early_flag,
-                "is_final_frame": is_final_frame,
-                })
+        # owandb.log({
+        #         "total_objects": tracker.get_total_objects(),
+        #         "objects_this_frame": len(objects),
+        #         "total_detections": tracker.get_total_detections(),
+        #         "detections_this_frame": len(detection_list),
+        #         "frame_idx": frame_idx,
+        #         "counter": counter,
+        #         "exit_early_flag": exit_early_flag,
+        #         "is_final_frame": is_final_frame,
+        #         })
     # LOOP OVER -----------------------------------------------------
     
-    # Consolidate captions 
-    for object in objects:
-        obj_captions = object['captions'][:20]
-        consolidated_caption = consolidate_captions(openai_client, obj_captions)
-        object['consolidated_caption'] = consolidated_caption
+    #----------------------------------------------------------------------------------------------------------------------
+    # slam.shutdown()
 
-    handle_rerun_saving(cfg.use_rerun, cfg.save_rerun, cfg.exp_suffix, exp_out_path)
+    # # Ensure system has shutdown before getting trajectory
+    # while not slam.is_shutdown():
+    #     continue
+    # poses = slam.get_trajectory()
 
-    # Save the pointcloud
-    if cfg.save_pcd:
-        save_pointcloud(
-            exp_suffix=cfg.exp_suffix,
-            exp_out_path=exp_out_path,
-            cfg=cfg,
-            objects=objects,
-            obj_classes=obj_classes,
-            latest_pcd_filepath=cfg.latest_pcd_filepath,
-            create_symlink=True,
-            edges=map_edges
-        )
-
-    if cfg.save_json:
-        save_obj_json(
-            exp_suffix=cfg.exp_suffix,
-            exp_out_path=exp_out_path,
-            objects=objects
-        )
         
-        save_edge_json(
-            exp_suffix=cfg.exp_suffix,
-            exp_out_path=exp_out_path,
-            objects=objects,
-            edges=map_edges
-        )
+    # # Get frames with updated poses
+    # updated_frame_idxs = get_updated_frame_idxs(poses, prev_poses)
 
-    # Save metadata if all frames are saved
-    if cfg.save_objects_all_frames:
-        save_meta_path = obj_all_frames_out_path / f"meta.pkl.gz"
-        with gzip.open(save_meta_path, "wb") as f:
-            pickle.dump({
-                'cfg': cfg,
-                'class_names': obj_classes.get_classes_arr(),
-                'class_colors': obj_classes.get_class_color_dict_by_index(),
-            }, f)
+    # for updated_frame_idx in updated_frame_idxs:
 
-    if run_detections:
-        if cfg.save_video:
-            save_video_detections(det_exp_path)
+    #     # Get objects derived from the updated frame
+    #     objects_in_frame = get_objs_in_frame(objects, updated_frame_idx)
 
-    owandb.finish()
+    #     # Update the PCD of each object
+    #     for obj in objects_in_frame:
+    #         new_pcd = pcd = o3d.geometry.PointCloud()
+
+    #         # Get PCD contributions from the other frames the object appears in
+    #         for i, img_idx in enumerate(obj["image_idx"]):
+    #             # Get data for the frame
+    #             color_tensor, depth_tensor, intrinsics, *_ = dataset[updated_frame_idx]
+    #             # Covert to numpy and do some sanity checks
+    #             depth_tensor = depth_tensor[..., 0]
+    #             depth_array = depth_tensor.cpu().numpy()
+    #             color_np = color_tensor.cpu().numpy() # (H, W, 3)
+    #             image_rgb = (color_np).astype(np.uint8) # (H, W, 3)
+
+    #             pcd_contrib = obj_pcds_and_bboxes = detections_to_obj_pcd_and_bbox(
+    #                                                 depth_array=depth_array,
+    #                                                 masks=np.expand_dims(obj["mask"][i], axis=0),
+    #                                                 cam_K=intrinsics.cpu().numpy()[:3, :3],  # Camera intrinsics
+    #                                                 image_rgb=image_rgb,
+    #                                                 trans_pose=poses[img_idx],
+    #                                                 min_points_threshold=cfg.min_points_threshold,
+    #                                                 spatial_sim_type=cfg.spatial_sim_type,
+    #                                                 obj_pcd_max_points=cfg.obj_pcd_max_points,
+    #                                                 device=cfg.device,
+    #                                                 )
+
+    #             new_pcd += pcd_contrib[0]["pcd"]
+
+    #         # Process the new PCD
+    #         new_pcd = process_pcd(new_pcd, cfg["downsample_voxel_size"], cfg["dbscan_remove_noise"], cfg["dbscan_eps"], cfg["dbscan_min_points"], run_dbscan=True)
+            
+    #         # Get the bounding box of the new PCD
+    #         bbox = get_bounding_box(cfg['spatial_sim_type'], new_pcd)
+
+    #         obj["pcd"] = new_pcd
+    #         obj["bbox"] = bbox
+    #         obj["n_points"] = len(np.asarray(new_pcd.points))
+
+    # Log optimised camera trajectory
+    # for i, pose in enumerate(poses):
+    #     orr_log_camera(intrinsics, pose, poses[i-1], cfg.image_width, cfg.image_height, i, "trajectory_opt")
+    #----------------------------------------------------------------------------------------------------------------------
+    
+    # # Consolidate captions 
+    # for object in objects:
+    #     obj_captions = object['captions'][:20]
+    #     consolidated_caption = consolidate_captions(openai_client, obj_captions)
+    #     object['consolidated_caption'] = consolidated_caption
+
+    # handle_rerun_saving(cfg.use_rerun, cfg.save_rerun, cfg.exp_suffix, exp_out_path)
+
+    # # Save the pointcloud
+    # if cfg.save_pcd:
+    #     save_pointcloud(
+    #         exp_suffix=cfg.exp_suffix,
+    #         exp_out_path=exp_out_path,
+    #         cfg=cfg,
+    #         objects=objects,
+    #         obj_classes=obj_classes,
+    #         latest_pcd_filepath=cfg.latest_pcd_filepath,
+    #         create_symlink=True,
+    #         edges=map_edges
+    #     )
+
+    # if cfg.save_json:
+    #     save_obj_json(
+    #         exp_suffix=cfg.exp_suffix,
+    #         exp_out_path=exp_out_path,
+    #         objects=objects
+    #     )
+        
+    #     save_edge_json(
+    #         exp_suffix=cfg.exp_suffix,
+    #         exp_out_path=exp_out_path,
+    #         objects=objects,
+    #         edges=map_edges
+    #     )
+
+    # # Save metadata if all frames are saved
+    # if cfg.save_objects_all_frames:
+    #     save_meta_path = obj_all_frames_out_path / f"meta.pkl.gz"
+    #     with gzip.open(save_meta_path, "wb") as f:
+    #         pickle.dump({
+    #             'cfg': cfg,
+    #             'class_names': obj_classes.get_classes_arr(),
+    #             'class_colors': obj_classes.get_class_color_dict_by_index(),
+    #         }, f)
+
+    # if run_detections:
+    #     if cfg.save_video:
+    #         save_video_detections(det_exp_path)
+
+    # owandb.finish()
 
 if __name__ == "__main__":
     main()

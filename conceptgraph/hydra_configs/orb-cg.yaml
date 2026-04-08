@@ -1,9 +1,9 @@
 defaults:
   - base
   - base_mapping
-  - realsense
+  # - realsense
   # - desk
-  # - replica
+  - replica
   # - record3d
   - sam
   - classes

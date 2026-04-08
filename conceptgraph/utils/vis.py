@@ -219,7 +219,7 @@ def vis_result_fast_on_depth(
     )
     mask_annotator = sv.MaskAnnotator(
         color = color,
-        opacity=0.2,
+        # opacity=0.2,
     )
 
     if hasattr(detections, 'confidence') and hasattr(detections, 'class_id'):
@@ -314,9 +314,9 @@ def old_filter_detections(
 class CustomBoxAnnotator(sv.BoxAnnotator):
     def __init__(
         self,
-        color: Union[Color, ColorPalette] = ColorPalette.DEFAULT,
+        color: Union[Color, ColorPalette] = ColorPalette.default(),
         thickness: int = 2,
-        text_color: Color = Color.BLACK,
+        text_color: Color = Color.black(),
         text_scale: float = 0.5,
         text_thickness: int = 1,
         text_padding: int = 10,

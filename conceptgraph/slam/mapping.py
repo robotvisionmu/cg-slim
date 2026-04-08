@@ -139,8 +139,9 @@ def merge_obj_matches(
             })
 
             objects.append(detection_list[detected_obj_idx])
+            print("Created new object")
         else:
-
+            print("Merging object")
             detected_obj = detection_list[detected_obj_idx]
             matched_obj = objects[existing_obj_match_idx]
             merged_obj = merge_obj2_into_obj1(

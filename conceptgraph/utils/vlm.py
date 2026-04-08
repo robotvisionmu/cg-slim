@@ -100,11 +100,14 @@ Do not include any additional information in your response.
 system_prompt = system_prompt_only_top
 
 # gpt_model = "gpt-4-vision-preview"
-gpt_model = "gpt-4o-2024-05-13"
+# gpt_model = "gpt-4o-2024-05-13"
+gpt_model = "llava:34b"
 
 def get_openai_client():
     client = OpenAI(
-        api_key=os.getenv('OPENAI_API_KEY')
+        base_url="http://localhost:11434/v1",
+        api_key="ollama"
+        # api_key=os.getenv('OPENAI_API_KEY')
     )
     return client
 
@@ -286,11 +289,12 @@ def get_obj_rel_from_image_gpt4v(client: OpenAI, image_path: str, label_list: li
                     "role": "user",
                     "content": user_query
                 }
-            ]
+            ],
+            temperature=0.2
         )
         
         vlm_answer_str = response.choices[0].message.content
-        print(f"Line 113, vlm_answer_str: {vlm_answer_str}")
+        print(f"Line 296, vlm_answer_str_obj_rel: {vlm_answer_str}")
         
         vlm_answer = extract_list_of_tuples(vlm_answer_str)
 
@@ -298,10 +302,10 @@ def get_obj_rel_from_image_gpt4v(client: OpenAI, image_path: str, label_list: li
         print(f"An error occurred: {str(e)}")
         print(f"Setting vlm_answer to an empty list.")
         vlm_answer = []
-    print(f"Line 68, user_query: {user_query}")
-    print(f"Line 97, vlm_answer: {vlm_answer}")
+    print(f"Line 304, obj_rel_user_query: {user_query}")
+    print(f"Line 305, obj_rel_vlm_answer: {vlm_answer}")
     
-    
+    print(f"vlm_answer: {vlm_answer}")
     return vlm_answer
 
     
@@ -341,11 +345,12 @@ def get_obj_captions_from_image_gpt4v(client: OpenAI, image_path: str, label_lis
     try:
         response = client.chat.completions.create(
             model=f"{gpt_model}",
-            messages=messages
+            messages=messages,
+            temperature=0.2
         )
         
         vlm_answer_str = response.choices[0].message.content
-        print(f"Line 113, vlm_answer_str: {vlm_answer_str}")
+        print(f"Line 352, cap_vlm_answer_str: {vlm_answer_str}")
         
         vlm_answer_captions = vlm_extract_object_captions(vlm_answer_str)
 
@@ -353,8 +358,8 @@ def get_obj_captions_from_image_gpt4v(client: OpenAI, image_path: str, label_lis
         print(f"An error occurred: {str(e)}")
         print(f"Setting vlm_answer to an empty list.")
         vlm_answer_captions = []
-    print(f"Line 68, user_query: {user_query}")
-    print(f"Line 97, vlm_answer: {vlm_answer_captions}")
+    print(f"Line 360, cap_user_query: {user_query}")
+    print(f"Line 361, cap_vlm_answer: {vlm_answer_captions}")
     
     
     return vlm_answer_captions
